@@ -540,77 +540,70 @@ class HTMLGenerator:
             + "\n</div>"
         )
 
-    def _build_product_rows_sp(self, data: ProductInfo) -> List[str]:
-        rows: List[str] = []
+    def _wrap_rakuten_sp_item(self, label: str, value: str) -> str:
+        """楽天SP用: style属性なし、基本的なHTMLのみ"""
+        return (
+            f"<table width=\"100%\" border=\"1\" cellpadding=\"8\" cellspacing=\"0\">"
+            f"<tr bgcolor=\"#f0f0f0\"><td><b>{escape_html(label)}</b></td></tr>"
+            f"<tr><td>{escape_html(value)}</td></tr>"
+            "</table><br>"
+        )
+
+    def generate_rakuten_sp(self, data: ProductInfo) -> str:
+        """楽天SP用: style属性を一切使わない"""
+        sections: List[str] = []
+
+        # 商品情報セクション
+        product_items = []
         for field_key in [
-            "product_name",
-            "product_type",
-            "ingredients",
-            "content",
-            "expiry",
-            "storage",
-            "seller",
-            "manufacturer",
-            "processor",
-            "importer",
+            "product_name", "product_type", "ingredients", "content",
+            "expiry", "storage", "seller", "manufacturer", "processor", "importer"
         ]:
             value = getattr(data, field_key)
             if value:
                 label = self.FIELD_LABELS_JP.get(field_key, field_key)
-                rows.append(self._wrap_sp_item(label, value))
+                product_items.append(self._wrap_rakuten_sp_item(label, value))
         for field_name, value in data.extra_fields.items():
-            rows.append(self._wrap_sp_item(field_name, value))
-        return rows
+            product_items.append(self._wrap_rakuten_sp_item(field_name, value))
 
-    def _build_nutrition_rows_sp(self, nutrition: Dict[str, str]) -> List[str]:
-        rows: List[str] = []
+        if product_items:
+            sections.append(
+                f"<table width=\"100%\" border=\"1\" cellpadding=\"10\" cellspacing=\"0\">"
+                f"<tr bgcolor=\"#e0e0e0\"><td><b>商品情報</b></td></tr>"
+                f"<tr><td>{''.join(product_items)}</td></tr>"
+                f"</table><br>"
+            )
+
+        # 栄養成分セクション
+        nutrition_items = []
         for key in NUTRITION_PRIORITY:
-            if key in nutrition:
+            if key in data.nutrition:
                 label = self.NUTRITION_LABELS_JP.get(key, key)
-                rows.append(self._wrap_sp_item(label, nutrition[key]))
-        for key, value in nutrition.items():
-            if key in NUTRITION_PRIORITY:
-                continue
-            label = self.NUTRITION_LABELS_JP.get(key, key)
-            rows.append(self._wrap_sp_item(label, value))
-        return rows
+                nutrition_items.append(self._wrap_rakuten_sp_item(label, data.nutrition[key]))
+        for key, value in data.nutrition.items():
+            if key not in NUTRITION_PRIORITY:
+                label = self.NUTRITION_LABELS_JP.get(key, key)
+                nutrition_items.append(self._wrap_rakuten_sp_item(label, value))
 
-    def _wrap_sp_item(self, label: str, value: str) -> str:
-        return (
-            f"<table width=\"100%\" cellpadding=\"10\" cellspacing=\"0\" style=\"border:1px solid {self.COLORS['border']};background:#fff;margin-bottom:8px;\">"
-            f"<tr><td style=\"font-weight:bold;color:#555;border-bottom:1px solid #ddd;\">{escape_html(label)}</td></tr>"
-            f"<tr><td style=\"line-height:1.6;\">{escape_html(value)}</td></tr>"
-            "</table>"
-        )
+        if nutrition_items:
+            sections.append(
+                f"<table width=\"100%\" border=\"1\" cellpadding=\"10\" cellspacing=\"0\">"
+                f"<tr bgcolor=\"#e0e0e0\"><td><b>栄養成分表示（100g当たり）推定値</b></td></tr>"
+                f"<tr><td>{''.join(nutrition_items)}</td></tr>"
+                f"</table><br>"
+            )
 
-    def _wrap_in_table_sp(self, title: str, body: str) -> str:
-        return (
-            f"<table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"margin-bottom:16px;\">"
-            f"<tr><td style=\"background:{self.COLORS['header_bg']};padding:10px 12px;font-weight:bold;\">{escape_html(title)}</td></tr>"
-            f"<tr><td style=\"padding:12px;background:#fafafa;\">{body}</td></tr>"
-            "</table>"
-        )
-
-    def _build_allergen_section_sp(self, allergen: str) -> str:
-        return (
-            f"<table width=\"100%\" cellpadding=\"12\" cellspacing=\"0\" style=\"border:2px solid {self.COLORS['allergen_border']};background:{self.COLORS['allergen_bg']};margin-top:16px;\">"
-            f"<tr><td><b>注意事項</b><br>{escape_html(allergen)}</td></tr>"
-            "</table>"
-        )
-
-    def generate_rakuten_sp(self, data: ProductInfo) -> str:
-        product_rows = self._build_product_rows_sp(data)
-        nutrition_rows = self._build_nutrition_rows_sp(data.nutrition)
-        sections: List[str] = []
-        if product_rows:
-            sections.append(self._wrap_in_table_sp("商品情報", "".join(product_rows)))
-        if nutrition_rows:
-            sections.append(self._wrap_in_table_sp("栄養成分表示（100g当たり）推定値", "".join(nutrition_rows)))
+        # 注意事項
         if data.allergen:
-            sections.append(self._build_allergen_section_sp(data.allergen))
+            sections.append(
+                f"<table width=\"100%\" border=\"2\" cellpadding=\"12\" cellspacing=\"0\" bgcolor=\"#fff5f5\">"
+                f"<tr><td><b>注意事項</b><br>{escape_html(data.allergen)}</td></tr>"
+                f"</table>"
+            )
+
         if not sections:
             return "<p>情報を抽出できませんでした</p>"
-        return "<br>".join(sections)
+        return "".join(sections)
 
     def _wrap_dl(self, label: str, value: str) -> str:
         return (
