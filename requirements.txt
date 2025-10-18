@@ -1,2 +1,1 @@
-﻿# Using standard library only for serverless function
-
+# Using standard library only for serverless function
