@@ -577,25 +577,25 @@ class HTMLGenerator:
 
     def _wrap_sp_item(self, label: str, value: str) -> str:
         return (
-            f"<div style=\"border:1px solid {self.COLORS['border']};padding:10px;border-radius:6px;background:#fff;\">"
-            f"<div style=\"font-weight:bold;color:#555;margin-bottom:6px;\">{escape_html(label)}</div>"
-            f"<div style=\"line-height:1.6;\">{escape_html(value)}</div>"
-            "</div>"
+            f"<table width=\"100%\" cellpadding=\"10\" cellspacing=\"0\" style=\"border:1px solid {self.COLORS['border']};background:#fff;margin-bottom:8px;\">"
+            f"<tr><td style=\"font-weight:bold;color:#555;border-bottom:1px solid #ddd;\">{escape_html(label)}</td></tr>"
+            f"<tr><td style=\"line-height:1.6;\">{escape_html(value)}</td></tr>"
+            "</table>"
         )
 
     def _wrap_in_table_sp(self, title: str, body: str) -> str:
         return (
-            f"<div style=\"margin-bottom:16px;\">"
-            f"<div style=\"background:{self.COLORS['header_bg']};padding:10px 12px;border-radius:6px 6px 0 0;font-weight:bold;\">{escape_html(title)}</div>"
-            f"<div style=\"display:grid;gap:12px;padding:12px;background:#fafafa;border-radius:0 0 6px 6px;\">{body}</div>"
-            "</div>"
+            f"<table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"margin-bottom:16px;\">"
+            f"<tr><td style=\"background:{self.COLORS['header_bg']};padding:10px 12px;font-weight:bold;\">{escape_html(title)}</td></tr>"
+            f"<tr><td style=\"padding:12px;background:#fafafa;\">{body}</td></tr>"
+            "</table>"
         )
 
     def _build_allergen_section_sp(self, allergen: str) -> str:
         return (
-            f"<div style=\"border:2px solid {self.COLORS['allergen_border']};padding:12px;border-radius:6px;background:{self.COLORS['allergen_bg']};\">"
-            f"<strong>注意事項</strong><br>{escape_html(allergen)}"
-            "</div>"
+            f"<table width=\"100%\" cellpadding=\"12\" cellspacing=\"0\" style=\"border:2px solid {self.COLORS['allergen_border']};background:{self.COLORS['allergen_bg']};margin-top:16px;\">"
+            f"<tr><td><b>注意事項</b><br>{escape_html(allergen)}</td></tr>"
+            "</table>"
         )
 
     def generate_rakuten_sp(self, data: ProductInfo) -> str:
@@ -707,7 +707,10 @@ class HTMLGenerator:
                 label = self.NUTRITION_LABELS_JP.get(key, key)
                 nutri_blocks.append(self._wrap_sp_item(label, value))
             blocks.append(
-                f"<div style=\"margin-top:16px;\"><div style=\"font-weight:bold;margin-bottom:8px;\">栄養成分表示（100g当たり）推定値</div>{''.join(nutri_blocks)}</div>"
+                f"<table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"margin-top:16px;\">"
+                f"<tr><td style=\"font-weight:bold;padding-bottom:8px;\">栄養成分表示（100g当たり）推定値</td></tr>"
+                f"<tr><td>{''.join(nutri_blocks)}</td></tr>"
+                f"</table>"
             )
         if data.allergen:
             blocks.append(self._build_allergen_section_sp(data.allergen))
