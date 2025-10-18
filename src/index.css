@@ -1,0 +1,18 @@
+﻿* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: 'Inter', 'Hiragino Sans', 'Yu Gothic', 'Noto Sans JP', sans-serif;
+  background: #eef3fb;
+  color: #1b1d21;
+}
+
+button, input, textarea {
+  font-family: inherit;
+}
+
+a {
+  color: inherit;
+}

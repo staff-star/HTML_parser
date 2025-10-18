@@ -1,0 +1,1553 @@
+# 【AI向け】楽天市場・Yahoo!ショッピング商品情報HTMLジェネレーター 最終要件定義書
+
+## 0. プロジェクトの核心理念
+
+### 0.1 最優先事項
+**「どんな形式でも、とにかく受け入れて、なんとかHTMLにする」**
+
+このツールは**超柔軟なパーサー**である。厳密な入力チェックは行わず、可能な限り情報を抽出してHTMLを生成する。エラーで止まるよりも、不完全でも出力することを優先する。
+
+### 0.2 想定ユースケース
+- メーカーから送られてくるバラバラな形式の商品情報
+- Excelからコピーした崩れたテキスト
+- PDFからコピーした改行まみれのテキスト
+- 手入力の誤字・脱字・表記ゆれだらけのテキスト
+- 順番がバラバラな項目
+- 項目名が微妙に違う（例: "商品名" vs "品名" vs "製品名"）
+- 全角・半角混在
+- コロンの有無・種類が統一されていない
+
+### 0.3 設計方針
+1. **寛容なパース**: 厳密なバリデーションは行わない
+2. **ベストエフォート**: 読み取れる情報はすべて抽出
+3. **補完と推測**: 欠けている情報は空欄で出力
+4. **柔軟な項目名**: あらゆるバリエーションに対応
+5. **エラーは警告に**: 致命的エラーを最小限に
+
+---
+
+## 1. デプロイメント仕様
+
+### 1.1 アーキテクチャ: Vercel統合型
+
+**重要な設計変更**: バックエンド・フロントエンド統合
+
+```
+project/
+├── api/
+│   └── generate.py          # Vercel Serverless Function
+├── src/
+│   ├── App.jsx
+│   ├── App.css
+│   ├── index.jsx
+│   └── index.css
+├── public/
+│   └── index.html
+├── vercel.json              # Vercel設定
+├── package.json
+├── requirements.txt         # Python依存関係
+└── README.md
+```
+
+### 1.2 Vercel Serverless Function
+
+**api/generate.py** (Vercel Python Runtime)
+```python
+# Vercel Serverless Function用のエントリーポイント
+# すべてのロジックをこの1ファイルに統合
+
+from http.server import BaseHTTPRequestHandler
+import json
+import re
+from typing import Dict, List, Optional, Any
+from dataclasses import dataclass, field, asdict
+import traceback
+
+# ここにパーサーとジェネレーターのすべてのコードを含める
+# （後述の詳細実装を参照）
+
+class handler(BaseHTTPRequestHandler):
+    def do_POST(self):
+        # CORS対応
+        self.send_response(200)
+        self.send_header('Content-type', 'application/json')
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.send_header('Access-Control-Allow-Methods', 'POST, OPTIONS')
+        self.send_header('Access-Control-Allow-Headers', 'Content-Type')
+        self.end_headers()
+        
+        try:
+            # リクエストボディ読み取り
+            content_length = int(self.headers['Content-Length'])
+            post_data = self.rfile.read(content_length)
+            data = json.loads(post_data.decode('utf-8'))
+            
+            input_text = data.get('text', '')
+            input_type = data.get('type', 'text')
+            
+            # 処理実行
+            result = process_input(input_text, input_type)
+            
+            # レスポンス返却
+            self.wfile.write(json.dumps(result, ensure_ascii=False).encode('utf-8'))
+            
+        except Exception as e:
+            error_result = {
+                'success': False,
+                'error': str(e),
+                'traceback': traceback.format_exc()
+            }
+            self.wfile.write(json.dumps(error_result, ensure_ascii=False).encode('utf-8'))
+    
+    def do_OPTIONS(self):
+        # プリフライトリクエスト対応
+        self.send_response(200)
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.send_header('Access-Control-Allow-Methods', 'POST, OPTIONS')
+        self.send_header('Access-Control-Allow-Headers', 'Content-Type')
+        self.end_headers()
+```
+
+### 1.3 vercel.json
+
+```json
+{
+  "builds": [
+    {
+      "src": "package.json",
+      "use": "@vercel/static-build",
+      "config": {
+        "distDir": "build"
+      }
+    }
+  ],
+  "routes": [
+    {
+      "src": "/api/(.*)",
+      "dest": "/api/$1"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/$1"
+    }
+  ],
+  "functions": {
+    "api/generate.py": {
+      "memory": 1024,
+      "maxDuration": 10
+    }
+  }
+}
+```
+
+### 1.4 requirements.txt
+
+```
+# 最小限の依存関係のみ
+# 標準ライブラリを最大限活用
+```
+
+**重要**: 外部ライブラリへの依存を最小化する。`re`, `json`, `dataclasses`などの標準ライブラリのみで実装する。
+
+---
+
+## 2. 超柔軟パーサー仕様
+
+### 2.1 パース戦略: 多段階抽出アプローチ
+
+```
+入力テキスト
+    ↓
+[前処理] 正規化・クリーニング
+    ↓
+[パターン1] 厳密なパターンマッチング（■商品名：...）
+    ↓
+[パターン2] 緩いパターンマッチング（商品名 ... など）
+    ↓
+[パターン3] キーワード検索（"商品", "品名", "製品"など）
+    ↓
+[パターン4] 位置推測（最初の行は商品名の可能性が高い）
+    ↓
+抽出結果（不完全でもOK）
+```
+
+### 2.2 前処理（テキスト正規化）
+
+**実装必須の前処理**:
+
+```python
+def normalize_text(text: str) -> str:
+    """
+    入力テキストを正規化
+    - 全角英数字を半角に変換
+    - 全角スペースを半角に変換
+    - 連続する改行を1つに
+    - タブを空白に変換
+    - 全角コロンを半角コロンに統一
+    - 前後の空白削除
+    """
+    import unicodedata
+    
+    # Unicode正規化（NFKC）
+    text = unicodedata.normalize('NFKC', text)
+    
+    # 全角英数字を半角に
+    text = text.translate(str.maketrans(
+        '０１２３４５６７８９ＡＢＣＤＥＦＧＨＩＪＫＬＭＮＯＰＱＲＳＴＵＶＷＸＹＺａｂｃｄｅｆｇｈｉｊｋｌｍｎｏｐｑｒｓｔｕｖｗｘｙｚ',
+        '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz'
+    ))
+    
+    # 全角スペースを半角に
+    text = text.replace('　', ' ')
+    
+    # タブを空白に
+    text = text.replace('\t', ' ')
+    
+    # 全角コロンを半角に
+    text = text.replace('：', ':')
+    
+    # 連続する空白を1つに
+    text = re.sub(r' +', ' ', text)
+    
+    # 連続する改行を最大2つに
+    text = re.sub(r'\n{3,}', '\n\n', text)
+    
+    return text.strip()
+```
+
+### 2.3 項目名の柔軟なマッチング
+
+**実装方針**: 項目名のバリエーションを網羅的に定義
+
+```python
+# 商品情報項目のバリエーション辞書
+FIELD_VARIATIONS = {
+    'product_name': [
+        '商品名', '品名', '製品名', '名前', '商品', '品目',
+        'product name', 'product', 'name', '商品の名前'
+    ],
+    'product_type': [
+        '名称', '品種', '種類', 'type', '分類', '品目名',
+        '商品の種類', '商品種別', 'category'
+    ],
+    'ingredients': [
+        '原材料', '原材料名', '原料', '成分', 'ingredients',
+        '使用原材料', '材料', '配合成分', '原材料等'
+    ],
+    'content': [
+        '内容量', '容量', '量', 'volume', 'content', '内容',
+        '正味量', 'net weight', '入数', '個数'
+    ],
+    'expiry': [
+        '賞味期限', '消費期限', '期限', 'expiry', 'best before',
+        '賞味', '消費', '有効期限', '保存期間'
+    ],
+    'storage': [
+        '保存方法', '保管方法', '保存', '保管', 'storage',
+        '貯蔵方法', '取扱方法', '保存の方法', '保管の方法'
+    ],
+    'seller': [
+        '販売者', '売主', '販売', 'seller', '販売元', '販売業者',
+        '販売会社', 'distributor', '発売元', '販売店'
+    ],
+    'manufacturer': [
+        '製造者', '製造元', '製造', 'manufacturer', '製造業者',
+        '製造会社', 'maker', 'メーカー', '製造場所'
+    ],
+    'processor': [
+        '加工者', '加工元', '加工', 'processor', '加工業者',
+        '加工会社', '加工場所'
+    ],
+    'importer': [
+        '輸入者', '輸入元', '輸入', 'importer', '輸入業者',
+        '輸入会社', '輸入元会社'
+    ],
+}
+
+# 栄養成分のバリエーション
+NUTRITION_VARIATIONS = {
+    'energy': [
+        'エネルギー', 'energy', 'カロリー', 'calorie', 'kcal',
+        '熱量', 'calories', 'エネルギー量'
+    ],
+    'protein': [
+        'たんぱく質', 'タンパク質', '蛋白質', 'protein',
+        'たんぱく', 'タンパク', 'プロテイン'
+    ],
+    'fat': [
+        '脂質', '脂肪', 'fat', 'lipid', '油脂', '脂肪分'
+    ],
+    'carbs': [
+        '炭水化物', '糖質', 'carbohydrate', 'carbs', '炭水化物量'
+    ],
+    'salt': [
+        '食塩相当量', 'ナトリウム', 'sodium', 'salt', '塩分',
+        '食塩', 'Na', 'ナトリウム量', '食塩量'
+    ],
+    'sugar': [
+        '糖質', '糖類', 'sugar', 'sugars', '炭水化物(糖質)'
+    ],
+    'fiber': [
+        '食物繊維', '繊維', 'fiber', 'dietary fiber', '繊維質'
+    ],
+}
+```
+
+### 2.4 多段階抽出ロジック
+
+```python
+def extract_field_value(text: str, field_key: str) -> Optional[str]:
+    """
+    フィールド値を多段階で抽出
+    
+    パターン1: ■{項目名}:{値}
+    パターン2: {項目名}:{値}
+    パターン3: {項目名} {値}（改行区切り）
+    パターン4: キーワード周辺のテキスト抽出
+    """
+    
+    variations = FIELD_VARIATIONS.get(field_key, [])
+    
+    for variation in variations:
+        # パターン1: ■付き
+        pattern1 = rf'[■【\[]?\s*{re.escape(variation)}\s*[:：]\s*(.+?)(?=\n[■【\[]|【栄養|※|$)'
+        match = re.search(pattern1, text, re.IGNORECASE | re.DOTALL)
+        if match:
+            return match.group(1).strip()
+        
+        # パターン2: ■なし
+        pattern2 = rf'^\s*{re.escape(variation)}\s*[:：]\s*(.+?)(?=\n|$)'
+        match = re.search(pattern2, text, re.IGNORECASE | re.MULTILINE)
+        if match:
+            return match.group(1).strip()
+        
+        # パターン3: 改行区切り（{項目名}の次の行）
+        pattern3 = rf'{re.escape(variation)}\s*\n\s*(.+?)(?=\n|$)'
+        match = re.search(pattern3, text, re.IGNORECASE)
+        if match:
+            return match.group(1).strip()
+    
+    # すべて失敗したらNone
+    return None
+```
+
+### 2.5 栄養成分の柔軟な抽出
+
+```python
+def extract_nutrition_flexible(text: str) -> Dict[str, str]:
+    """
+    栄養成分を柔軟に抽出
+    
+    対応パターン:
+    - エネルギー: 595kcal
+    - エネルギー 595kcal
+    - エネルギー:595 kcal
+    - エネルギー　595　kcal
+    - カロリー: 595
+    - 熱量: 595キロカロリー
+    """
+    
+    nutrition = {}
+    
+    for key, variations in NUTRITION_VARIATIONS.items():
+        for variation in variations:
+            # 数値+単位のパターン（柔軟）
+            patterns = [
+                # パターン1: {項目名}[:：\s]+{数値}+{単位}
+                rf'{re.escape(variation)}\s*[:：\s]+(\d+\.?\d*)\s*([a-zμA-Zァ-ヶー]*g*kcal*キロカロリー*)',
+                
+                # パターン2: {項目名}({数値}{単位})（括弧付き）
+                rf'{re.escape(variation)}\s*[（(]\s*(\d+\.?\d*)\s*([a-zμA-Zァ-ヶー]*g*kcal*)\s*[）)]',
+                
+                # パターン3: 単位なし（数値のみ）
+                rf'{re.escape(variation)}\s*[:：\s]+(\d+\.?\d*)\s*$',
+            ]
+            
+            for pattern in patterns:
+                match = re.search(pattern, text, re.IGNORECASE)
+                if match:
+                    if len(match.groups()) >= 2:
+                        value = match.group(1).strip()
+                        unit = match.group(2).strip() if match.group(2) else ''
+                        
+                        # 単位の正規化
+                        if 'キロカロリー' in unit:
+                            unit = 'kcal'
+                        
+                        nutrition[key] = f"{value}{unit}" if unit else value
+                    else:
+                        nutrition[key] = match.group(1).strip()
+                    break
+            
+            if key in nutrition:
+                break
+    
+    return nutrition
+```
+
+### 2.6 ナトリウム→食塩相当量の自動換算
+
+```python
+def convert_sodium_to_salt(nutrition: Dict[str, str]) -> Dict[str, str]:
+    """
+    ナトリウム量から食塩相当量を自動計算
+    食塩相当量(g) = ナトリウム(mg) × 2.54 ÷ 1000
+    """
+    
+    if 'salt' not in nutrition and 'sodium' in nutrition:
+        # ナトリウム値を抽出
+        sodium_str = nutrition['sodium']
+        
+        # 数値部分を抽出
+        match = re.search(r'(\d+\.?\d*)', sodium_str)
+        if match:
+            sodium_value = float(match.group(1))
+            
+            # 単位判定（mg想定）
+            if 'mg' in sodium_str.lower():
+                salt_value = sodium_value * 2.54 / 1000
+            elif 'g' in sodium_str.lower():
+                # gの場合はそのまま変換
+                salt_value = sodium_value * 2.54
+            else:
+                # 単位不明の場合はmg想定
+                salt_value = sodium_value * 2.54 / 1000
+            
+            nutrition['salt'] = f"{salt_value:.1f}g"
+    
+    return nutrition
+```
+
+### 2.7 未知項目の自動検出
+
+```python
+def extract_unknown_fields(text: str, known_fields: List[str]) -> Dict[str, str]:
+    """
+    既知の項目以外を自動検出
+    
+    ■{何か}:{値} の形式で、既知の項目名リストにない項目を抽出
+    """
+    
+    unknown = {}
+    
+    # ■または【で始まる項目を全抽出
+    pattern = r'[■【\[]?\s*(.+?)\s*[:：]\s*(.+?)(?=\n[■【\[]|【|※|$)'
+    
+    for match in re.finditer(pattern, text, re.DOTALL):
+        field_name = match.group(1).strip()
+        value = match.group(2).strip()
+        
+        # 既知の項目名でない場合は追加
+        is_known = False
+        for variations in FIELD_VARIATIONS.values():
+            if field_name in variations:
+                is_known = True
+                break
+        
+        for variations in NUTRITION_VARIATIONS.values():
+            if field_name in variations:
+                is_known = True
+                break
+        
+        if not is_known and field_name and value:
+            # 項目名が長すぎる場合はスキップ（誤検出防止）
+            if len(field_name) < 20:
+                unknown[field_name] = value
+    
+    return unknown
+```
+
+### 2.8 エラーハンドリング: 警告ベース
+
+```python
+@dataclass
+class ParseLog:
+    level: str  # 'info', 'warning', 'error'
+    message: str
+    field: Optional[str] = None
+
+@dataclass
+class ProductInfo:
+    # すべてのフィールドをOptionalに
+    product_name: Optional[str] = None
+    product_type: Optional[str] = None
+    ingredients: Optional[str] = None
+    content: Optional[str] = None
+    expiry: Optional[str] = None
+    storage: Optional[str] = None
+    seller: Optional[str] = None
+    manufacturer: Optional[str] = None
+    processor: Optional[str] = None
+    importer: Optional[str] = None
+    
+    nutrition: Dict[str, str] = field(default_factory=dict)
+    allergen: Optional[str] = None
+    extra_fields: Dict[str, str] = field(default_factory=dict)
+
+class FlexibleParser:
+    """超柔軟パーサー"""
+    
+    def __init__(self):
+        self.logs: List[ParseLog] = []
+    
+    def parse(self, text: str) -> ProductInfo:
+        """
+        パース処理（エラーで止まらない）
+        """
+        self.logs = []
+        
+        if not text or not text.strip():
+            self.logs.append(ParseLog('warning', '入力テキストが空です'))
+            return ProductInfo()
+        
+        # 前処理
+        text = normalize_text(text)
+        
+        # 商品情報抽出
+        product_data = {}
+        for field_key in FIELD_VARIATIONS.keys():
+            value = extract_field_value(text, field_key)
+            if value:
+                product_data[field_key] = value
+                self.logs.append(ParseLog('info', f'{field_key}を抽出: {value[:30]}...', field_key))
+            else:
+                self.logs.append(ParseLog('warning', f'{field_key}が見つかりませんでした', field_key))
+        
+        # 栄養成分抽出
+        nutrition = extract_nutrition_flexible(text)
+        
+        # ナトリウム→食塩換算
+        nutrition = convert_sodium_to_salt(nutrition)
+        
+        if nutrition:
+            for key, value in nutrition.items():
+                self.logs.append(ParseLog('info', f'栄養成分 {key}を抽出: {value}', f'nutrition.{key}'))
+        else:
+            self.logs.append(ParseLog('warning', '栄養成分が見つかりませんでした'))
+        
+        # 注意書き抽出
+        allergen = extract_allergen(text)
+        if allergen:
+            self.logs.append(ParseLog('info', f'注意書きを抽出: {allergen[:50]}...', 'allergen'))
+        
+        # 未知項目抽出
+        known_field_names = []
+        for variations in FIELD_VARIATIONS.values():
+            known_field_names.extend(variations)
+        
+        extra_fields = extract_unknown_fields(text, known_field_names)
+        if extra_fields:
+            for name, value in extra_fields.items():
+                self.logs.append(ParseLog('info', f'未知の項目「{name}」を抽出: {value[:30]}...', f'extra.{name}'))
+        
+        return ProductInfo(
+            **product_data,
+            nutrition=nutrition,
+            allergen=allergen,
+            extra_fields=extra_fields
+        )
+
+def extract_allergen(text: str) -> Optional[str]:
+    """注意書き抽出"""
+    patterns = [
+        r'※(.+?)$',  # ※以降すべて
+        r'注意[:：\s]+(.+?)$',  # 注意:以降
+        r'アレルギー[:：\s]+(.+?)$',  # アレルギー:以降
+    ]
+    
+    for pattern in patterns:
+        match = re.search(pattern, text, re.DOTALL | re.IGNORECASE)
+        if match:
+            return match.group(1).strip()
+    
+    return None
+```
+
+---
+
+## 3. HTML生成仕様
+
+### 3.1 生成方針
+
+**重要**: 欠けている項目は行ごと削除する（空欄行を作らない）
+
+```python
+class HTMLGenerator:
+    """HTML生成クラス"""
+    
+    COLORS = {
+        'header_bg': '#f5f5f5',
+        'label_bg': '#e8e8e8',
+        'border': '#333',
+        'allergen_border': '#ff6b6b',
+        'allergen_bg': '#fff5f5',
+    }
+    
+    FIELD_LABELS_JP = {
+        'product_name': '商品名',
+        'product_type': '名称',
+        'ingredients': '原材料',
+        'content': '内容量',
+        'expiry': '賞味期限',
+        'storage': '保存方法',
+        'seller': '販売者',
+        'manufacturer': '製造者',
+        'processor': '加工者',
+        'importer': '輸入者',
+    }
+    
+    NUTRITION_LABELS_JP = {
+        'energy': 'エネルギー',
+        'protein': 'たんぱく質',
+        'fat': '脂質',
+        'carbs': '炭水化物',
+        'salt': '食塩相当量',
+        'sugar': '糖質',
+        'fiber': '食物繊維',
+        'sodium': 'ナトリウム',
+    }
+    
+    def generate_all(self, data: ProductInfo) -> Dict[str, str]:
+        """4種類すべてのHTMLを生成"""
+        return {
+            'rakuten_pc': self.generate_rakuten_pc(data),
+            'rakuten_sp': self.generate_rakuten_sp(data),
+            'yahoo_pc': self.generate_yahoo_pc(data),
+            'yahoo_sp': self.generate_yahoo_sp(data),
+        }
+    
+    def _build_product_rows_pc(self, data: ProductInfo) -> List[str]:
+        """商品情報の行を生成（存在する項目のみ）"""
+        rows = []
+        
+        # 既定項目
+        for field_key in ['product_name', 'product_type', 'ingredients', 
+                          'content', 'expiry', 'storage', 
+                          'seller', 'manufacturer', 'processor', 'importer']:
+            value = getattr(data, field_key, None)
+            if value:  # 値が存在する場合のみ
+                label = self.FIELD_LABELS_JP.get(field_key, field_key)
+                rows.append(self._create_table_row_pc(label, value))
+        
+        # 未知の項目
+        if data.extra_fields:
+            for field_name, value in data.extra_fields.items():
+                rows.append(self._create_table_row_pc(field_name, value))
+        
+        return rows
+    
+    def _build_nutrition_rows_pc(self, nutrition: Dict[str, str]) -> List[str]:
+        """栄養成分の行を生成（存在する項目のみ）"""
+        rows = []
+        
+        # 優先順位付きの栄養成分
+        priority_keys = ['energy', 'protein', 'fat', 'carbs', 'salt']
+        
+        # 優先項目
+        for key in priority_keys:
+            if key in nutrition:
+                label = self.NUTRITION_LABELS_JP.get(key, key)
+                rows.append(self._create_nutrition_row_pc(label, nutrition[key]))
+        
+        # その他の栄養成分
+        for key, value in nutrition.items():
+            if key not in priority_keys:
+                label = self.NUTRITION_LABELS_JP.get(key, key)
+                rows.append(self._create_nutrition_row_pc(label, value))
+        
+        return rows
+    
+    def generate_rakuten_pc(self, data: ProductInfo) -> str:
+        """楽天PC用HTML生成"""
+        
+        # 商品情報テーブル
+        product_rows = self._build_product_rows_pc(data)
+        if product_rows:
+            product_table = self._wrap_in_table_pc(
+                '商品情報',
+                '\n    '.join(product_rows)
+            )
+        else:
+            product_table = ''
+        
+        # 栄養成分テーブル
+        nutrition_rows = self._build_nutrition_rows_pc(data.nutrition)
+        if nutrition_rows:
+            nutrition_table = self._wrap_in_table_pc(
+                '栄養成分表示（100g当たり）推定値',
+                '\n    '.join(nutrition_rows)
+            )
+        else:
+            nutrition_table = ''
+        
+        # アレルギー情報
+        allergen_section = ''
+        if data.allergen:
+            allergen_section = self._build_allergen_section_pc(data.allergen)
+        
+        # 全体を結合
+        sections = [s for s in [product_table, nutrition_table, allergen_section] if s]
+        
+        if not sections:
+            return '<div style="padding: 20px; color: #999;">情報を抽出できませんでした</div>'
+        
+        html = f'''<div style="margin: 20px auto; max-width: 800px; font-family: 'メイリオ', Meiryo, sans-serif;">
+  {chr(10).join(sections)}
+</div>'''
+        
+        return html
+    
+    # 以下、各種ヘルパーメソッド...
+```
+
+### 3.2 情報不足時の表示
+
+**重要な原則**:
+- テーブルが完全に空の場合は、そのテーブル自体を出力しない
+- 商品情報も栄養成分も何もない場合は、「情報を抽出できませんでした」というメッセージのみ表示
+- 空の行は絶対に作らない
+
+### 3.3 楽天スマホ用変換の最適化
+
+```python
+def generate_rakuten_sp(self, data: ProductInfo) -> str:
+    """
+    楽天スマホ用HTML（直接生成）
+    
+    PC用からの変換ではなく、最初からスマホ用として生成する方が確実
+    """
+    
+    # 商品情報テーブル
+    product_rows = self._build_product_rows_sp(data)
+    if product_rows:
+        product_table = self._wrap_in_table_sp(
+            '商品情報',
+            '\n  '.join(product_rows)
+        )
+    else:
+        product_table = ''
+    
+    # 栄養成分テーブル
+    nutrition_rows = self._build_nutrition_rows_sp(data.nutrition)
+    if nutrition_rows:
+        nutrition_table = self._wrap_in_table_sp(
+            '栄養成分表示（100g当たり）推定値',
+            '\n  '.join(nutrition_rows)
+        )
+    else:
+        nutrition_table = ''
+    
+    # アレルギー情報
+    allergen_section = ''
+    if data.allergen:
+        allergen_section = self._build_allergen_section_sp(data.allergen)
+    
+    # 全体を結合
+    sections = [s for s in [product_table, nutrition_table, allergen_section] if s]
+    
+    if not sections:
+        return '<p>情報を抽出できませんでした</p>'
+    
+    return '<br>\n'.join(sections)
+```
+
+---
+
+## 4. CSV対応仕様
+
+### 4.1 CSVフォーマット（超柔軟）
+
+**対応する形式**:
+
+**形式1: 標準的なキー・バリュー形式**
+```csv
+項目名,値
+商品名,蒜山高原ミックスチョコレート
+名称,チョコレート
+原材料,チョコレート(砂糖...)
+```
+
+**形式2: ヘッダーなし**
+```csv
+商品名,蒜山高原ミックスチョコレート
+名称,チョコレート
+```
+
+**形式3: 項目名が英語**
+```csv
+Field,Value
+Product Name,Chocolate Mix
+Type,Chocolate
+```
+
+**形式4: 複数列（最初の2列のみ使用）**
+```csv
+項目,値,備考
+商品名,チョコレート,最新版
+```
+
+**形式5: Excelからのコピペ（タブ区切り）**
+```
+商品名	蒜山高原ミックスチョコレート
+名称	チョコレート
+```
+
+### 4.2 CSV解析処理
+
+```python
+def parse_csv_flexible(csv_content: str) -> str:
+    """
+    CSVを柔軟に解析してテキスト形式に変換
+    
+    戦略:
+    1. 区切り文字を自動判定（カンマ, タブ, セミコロン）
+    2. エンコーディング自動判定（UTF-8, Shift-JIS, CP932）
+    3. ヘッダー行の有無を自動判定
+    4. 最初の2列を項目名・値として扱う
+    """
+    
+    # 区切り文字判定
+    delimiters = [',', '\t', ';', '|']
+    best_delimiter = None
+    max_columns = 0
+    
+    for delimiter in delimiters:
+        lines = csv_content.strip().split('\n')
+        if lines:
+            columns = lines[0].split(delimiter)
+            if len(columns) > max_columns:
+                max_columns = len(columns)
+                best_delimiter = delimiter
+    
+    if not best_delimiter or max_columns < 2:
+        # CSV解析失敗、そのまま返す
+        return csv_content
+    
+    # CSV解析
+    lines = csv_content.strip().split('\n')
+    text_lines = []
+    
+    # ヘッダー行をスキップ（"項目名", "Field"などの場合）
+    start_index = 0
+    if lines and re.search(r'項目|field|key|name', lines[0], re.IGNORECASE):
+        start_index = 1
+    
+    for line in lines[start_index:]:
+        if not line.strip() or line.startswith('#'):
+            continue
+        
+        parts = line.split(best_delimiter)
+        if len(parts) >= 2:
+            key = parts[0].strip()
+            value = parts[1].strip()
+            
+            if key and value:
+                # 栄養成分かどうか判定
+                is_nutrition = False
+                for variations in NUTRITION_VARIATIONS.values():
+                    if key in variations:
+                        is_nutrition = True
+                        break
+                
+                if is_nutrition:
+                    # 栄養成分は【】なしで出力
+                    text_lines.append(f"{key}:{value}")
+                else:
+                    # その他は■付きで出力
+                    text_lines.append(f"■{key}:{value}")
+    
+    # 栄養成分がある場合は【】で囲む
+    has_nutrition = any(
+        any(key in line for variations in NUTRITION_VARIATIONS.values() for key in variations)
+        for line in text_lines
+    )
+    
+    if has_nutrition:
+        # 栄養成分の直前に【栄養成分表示】を挿入
+        result_lines = []
+        nutrition_started = False
+        
+        for line in text_lines:
+            is_nutrition_line = not line.startswith('■')
+            
+            if is_nutrition_line and not nutrition_started:
+                result_lines.append('【栄養成分表示(100g当たり)】（推定値）')
+                nutrition_started = True
+            
+            result_lines.append(line)
+        
+        return '\n'.join(result_lines)
+    else:
+        return '\n'.join(text_lines)
+```
+
+---
+
+## 5. フロントエンド仕様（React）
+
+### 5.1 主要機能
+
+1. **テキスト入力エリア**
+   - 大きなテキストエリア（20行以上）
+   - プレースホルダーに例文を表示
+   - リアルタイム文字数カウント（オプション）
+
+2. **CSVアップロード**
+   - ドラッグ&ドロップ対応
+   - ファイル選択ボタン
+   - アップロード後、テキストエリアに変換内容を表示
+
+3. **生成ボタン**
+   - 大きく目立つボタン
+   - ローディング状態表示
+
+4. **出力エリア**
+   - タブ切り替え（楽天PC / 楽天スマホ / Yahoo! PC / Yahoo! スマホ）
+   - HTMLプレビュー（実際のテーブル表示）
+   - HTMLコード表示（コピー可能）
+   - 各タブごとにコピーボタン
+
+5. **ログ表示**
+   - 折りたたみ可能
+   - レベル別の色分け（info: 青、warning: 黄、error: 赤）
+   - フィルター機能（オプション）
+
+### 5.2 UI/UXの重要ポイント
+
+**シンプル第一**:
+- 余計な機能は付けない
+- 1画面で完結
+- スクロール最小限
+
+**わかりやすさ**:
+- 明確なラベル
+- 視覚的フィードバック（ローディング、成功・失敗表示）
+- エラーメッセージは具体的に
+
+**効率性**:
+- キーボードショートカット（Ctrl+Enter で生成、など）
+- タブ切り替えがスムーズ
+- コピーボタンのフィードバック（「コピーしました！」）
+
+### 5.3 レスポンシブ対応
+
+- **デスクトップ**: 2カラムレイアウト（入力 | 出力）
+- **タブレット**: 1カラム（縦並び）
+- **スマホ**: 1カラム、フォントサイズ調整
+
+---
+
+## 6. エッジケース対応
+
+### 6.1 想定される難しい入力
+
+**ケース1: 改行まみれ**
+```
+商品名
+蒜山高原
+ミックス
+チョコレート
+
+名称
+チョコレート
+```
+→ 複数行を結合して抽出
+
+**ケース2: 箇条書き形式**
+```
+・商品名：チョコレート
+・名称：菓子
+・原材料：砂糖、カカオ
+```
+→ 箇条書き記号（・, -, *）を無視
+
+**ケース3: 表形式（スペース区切り）**
+```
+商品名            蒜山高原ミックスチョコレート
+名称              チョコレート
+原材料            砂糖、カカオ
+```
+→ 複数スペースを区切りとして判定
+
+**ケース4: HTML混入**
+```
+<p>商品名：チョコレート</p>
+<div>名称：菓子</div>
+```
+→ HTMLタグを除去してからパース
+
+**ケース5: 単位のバリエーション**
+```
+エネルギー：595 kcal
+たんぱく質：6.7 g
+脂質：41.0グラム
+炭水化物：49.9ｇ
+```
+→ 単位を正規化（「グラム」→「g」、全角→半角）
+
+**ケース6: 数値のバリエーション**
+```
+エネルギー：595
+たんぱく質：6.7g
+脂質：41g
+炭水化物：49.9 g
+食塩相当量：0.3ｇ
+```
+→ 単位なしの場合は文脈から推測
+
+### 6.2 対応実装
+
+```python
+def preprocess_extreme_cases(text: str) -> str:
+    """
+    エッジケースの前処理
+    """
+    
+    # HTMLタグ除去
+    text = re.sub(r'<[^>]+>', '', text)
+    
+    # 箇条書き記号除去
+    text = re.sub(r'^[\s・\-\*]+', '', text, flags=re.MULTILINE)
+    
+    # 複数スペースを1つに
+    text = re.sub(r'  +', ' ', text)
+    
+    # 全角単位を半角に
+    text = text.replace('グラム', 'g')
+    text = text.replace('ｇ', 'g')
+    text = text.replace('キロカロリー', 'kcal')
+    
+    return text
+
+def merge_broken_lines(text: str) -> str:
+    """
+    改行で分断された値を結合
+    
+    例:
+    商品名
+    蒜山高原
+    ミックスチョコレート
+    
+    → 商品名: 蒜山高原ミックスチョコレート
+    """
+    
+    lines = text.split('\n')
+    result = []
+    i = 0
+    
+    while i < len(lines):
+        line = lines[i].strip()
+        
+        # 項目名っぽい行（:で終わる、または次の行が値っぽい）
+        if line and ':' not in line and i + 1 < len(lines):
+            # 次の行以降を値として結合
+            value_lines = []
+            j = i + 1
+            while j < len(lines) and lines[j].strip() and not re.match(r'^[■・\-]', lines[j]):
+                value_lines.append(lines[j].strip())
+                j += 1
+            
+            if value_lines:
+                result.append(f"{line}:{' '.join(value_lines)}")
+                i = j
+                continue
+        
+        result.append(line)
+        i += 1
+    
+    return '\n'.join(result)
+```
+
+---
+
+## 7. テスト仕様
+
+### 7.1 テストカテゴリ
+
+1. **標準入力テスト**: 正しい形式の入力
+2. **柔軟性テスト**: 表記ゆれ、順番バラバラ
+3. **欠損テスト**: 項目が欠けている
+4. **エッジケーステスト**: 極端に崩れた入力
+5. **CSV テスト**: 各種CSV形式
+6. **統合テスト**: フロントエンド→バックエンド
+
+### 7.2 テストケース（最重要30ケース）
+
+```python
+TEST_CASES = [
+    # 1. 標準的な入力
+    {
+        'name': '標準入力_完全',
+        'input': '''■商品名：蒜山高原ミックスチョコレート
+■名称：チョコレート
+■原材料：チョコレート(砂糖、ココアバター...)
+■内容量：300g
+■賞味期限：製造より180日
+■保存方法：28℃以下で保存
+■販売者：株式会社天然生活
+【栄養成分表示(100g当たり)】（推定値）
+エネルギー：595kcal
+たんぱく質：6.7g
+脂質：41.0g
+炭水化物：49.9g
+食塩相当量：0.3g
+※本品製造工場では...''',
+        'expected': {
+            'success': True,
+            'has_product_name': True,
+            'has_nutrition': True,
+        }
+    },
+    
+    # 2. 順番バラバラ
+    {
+        'name': '順番バラバラ',
+        'input': '''■販売者：株式会社天然生活
+■原材料：チョコレート
+■商品名：チョコレート
+エネルギー：595kcal
+■名称：菓子
+たんぱく質：6.7g''',
+        'expected': {
+            'success': True,
+            'has_product_name': True,
+        }
+    },
+    
+    # 3. 項目名の表記ゆれ
+    {
+        'name': '項目名_表記ゆれ',
+        'input': '''品名：チョコレート
+製品名：ミックスチョコ
+原料：砂糖
+カロリー：595kcal
+タンパク質：6.7g''',
+        'expected': {
+            'success': True,
+            'has_product_name': True,
+        }
+    },
+    
+    # 4. 全角・半角混在
+    {
+        'name': '全角半角混在',
+        'input': '''■商品名：チョコレート
+■名称：菓子
+エネルギー：５９５kcal
+たんぱく質：６．７ｇ''',
+        'expected': {
+            'success': True,
+        }
+    },
+    
+    # 5. コロンのバリエーション
+    {
+        'name': 'コロン_バリエーション',
+        'input': '''商品名:チョコレート
+名称：菓子
+原材料 砂糖
+エネルギー  595kcal''',
+        'expected': {
+            'success': True,
+        }
+    },
+    
+    # 6. 改行まみれ
+    {
+        'name': '改行まみれ',
+        'input': '''商品名
+チョコレート
+ミックス
+
+名称
+菓子
+
+エネルギー
+595
+kcal''',
+        'expected': {
+            'success': True,
+        }
+    },
+    
+    # 7. ナトリウム→食塩換算
+    {
+        'name': 'ナトリウム換算',
+        'input': '''商品名：チョコ
+名称：菓子
+原材料：砂糖
+エネルギー：595kcal
+たんぱく質：6.7g
+脂質：41.0g
+炭水化物：49.9g
+ナトリウム：118mg''',
+        'expected': {
+            'success': True,
+            'has_salt_converted': True,
+        }
+    },
+    
+    # 8. 最小限の情報
+    {
+        'name': '最小限',
+        'input': '''商品名：チョコ
+名称：菓子
+原材料：砂糖
+エネルギー：595kcal
+たんぱく質：6.7g
+脂質：41.0g
+炭水化物：49.9g
+食塩相当量：0.3g''',
+        'expected': {
+            'success': True,
+        }
+    },
+    
+    # 9. 栄養成分のみ
+    {
+        'name': '栄養成分のみ',
+        'input': '''エネルギー：595kcal
+たんぱく質：6.7g
+脂質：41.0g
+炭水化物：49.9g
+食塩相当量：0.3g''',
+        'expected': {
+            'success': True,
+            'warning_count': lambda w: w > 0,  # 商品名なしの警告
+        }
+    },
+    
+    # 10. 商品情報のみ
+    {
+        'name': '商品情報のみ',
+        'input': '''商品名：チョコレート
+名称：菓子
+原材料：砂糖、カカオ
+販売者：株式会社天然生活''',
+        'expected': {
+            'success': True,
+            'warning_count': lambda w: w > 0,  # 栄養成分なしの警告
+        }
+    },
+    
+    # 11-30: 追加のエッジケース...
+]
+```
+
+### 7.3 自動テスト実装
+
+```python
+def run_tests():
+    """全テストケースを実行"""
+    parser = FlexibleParser()
+    results = []
+    
+    for test_case in TEST_CASES:
+        try:
+            product_info = parser.parse(test_case['input'])
+            
+            # 期待値チェック
+            passed = True
+            for key, expected_value in test_case['expected'].items():
+                if key == 'success':
+                    # 常に成功するはず（エラーで止まらない）
+                    passed = passed and True
+                elif key == 'has_product_name':
+                    passed = passed and (product_info.product_name is not None)
+                elif key == 'has_nutrition':
+                    passed = passed and (len(product_info.nutrition) > 0)
+                # その他のチェック...
+            
+            results.append({
+                'name': test_case['name'],
+                'passed': passed,
+                'logs': parser.logs
+            })
+        except Exception as e:
+            results.append({
+                'name': test_case['name'],
+                'passed': False,
+                'error': str(e)
+            })
+    
+    return results
+```
+
+---
+
+## 8. パフォーマンス要件（Vercel最適化）
+
+### 8.1 Serverless Function制約
+
+- **最大実行時間**: 10秒（Hobby Plan）
+- **メモリ**: 1024MB
+- **コールドスタート**: 初回呼び出し時に遅延
+
+### 8.2 最適化戦略
+
+1. **外部ライブラリ依存の最小化**
+   - 標準ライブラリのみ使用
+   - `import`文を最小限に
+
+2. **正規表現のコンパイル**
+```python
+# モジュールレベルでコンパイル
+COMPILED_PATTERNS = {
+    'product_name': re.compile(r'...', re.IGNORECASE),
+    # ...
+}
+```
+
+3. **早期リターン**
+```python
+# 明らかに不正な入力は早期に返す
+if len(text) < 10:
+    return error_response('入力が短すぎます')
+```
+
+4. **レスポンスサイズの最適化**
+```python
+# ログを100件までに制限
+logs = logs[:100]
+```
+
+---
+
+## 9. デバッグ・運用仕様
+
+### 9.1 ログ出力
+
+**本番環境でのログ**:
+- エラー発生時は必ずtracebackを返す
+- ユーザーに見せるログと、デバッグ用ログを分ける
+
+```python
+def process_input(text: str, input_type: str) -> dict:
+    """メイン処理"""
+    debug_logs = []  # デバッグ用
+    user_logs = []   # ユーザー表示用
+    
+    try:
+        # 処理...
+        pass
+    except Exception as e:
+        debug_logs.append(f'Exception: {e}')
+        debug_logs.append(traceback.format_exc())
+        
+        return {
+            'success': False,
+            'error': str(e),
+            'user_logs': user_logs,
+            'debug_logs': debug_logs,  # 開発時のみ返す
+        }
+```
+
+### 9.2 エラー監視
+
+Vercel標準のログ機能を活用:
+- Function Logs（Vercelダッシュボード）
+- エラーレート監視
+- 実行時間監視
+
+---
+
+## 10. セキュリティ要件
+
+### 10.1 入力検証
+
+```python
+def validate_input_safety(text: str) -> bool:
+    """
+    危険な入力をチェック
+    
+    - 極端に長い入力（DoS防止）
+    - 危険なHTMLタグ
+    """
+    
+    # 長さ制限（100KB）
+    if len(text) > 100000:
+        raise ValueError('入力が長すぎます（最大100KB）')
+    
+    # 危険なタグチェック
+    dangerous_patterns = [
+        r'<script', r'<iframe', r'javascript:',
+        r'<object', r'<embed', r'onerror='
+    ]
+    
+    text_lower = text.lower()
+    for pattern in dangerous_patterns:
+        if pattern in text_lower:
+            raise ValueError(f'禁止されたパターン「{pattern}」が含まれています')
+    
+    return True
+```
+
+### 10.2 XSS対策
+
+**重要**: 生成するHTML内でユーザー入力をそのまま出力するため、エスケープ必須
+
+```python
+def escape_html(text: str) -> str:
+    """HTMLエスケープ"""
+    return (text
+        .replace('&', '&amp;')
+        .replace('<', '&lt;')
+        .replace('>', '&gt;')
+        .replace('"', '&quot;')
+        .replace("'", '&#x27;'))
+
+# 使用例
+def _create_table_row_pc(self, label: str, value: str) -> str:
+    label_escaped = escape_html(label)
+    value_escaped = escape_html(value)
+    # 改行だけは<br>に変換（エスケープ後）
+    value_escaped = value_escaped.replace('\n', '<br>')
+    
+    return f'''<tr>
+      <td ...>{label_escaped}</td>
+      <td ...>{value_escaped}</td>
+    </tr>'''
+```
+
+---
+
+## 11. ドキュメント要件
+
+### 11.1 README.md
+
+```markdown
+# 楽天市場・Yahoo!ショッピング 商品情報HTMLジェネレーター
+
+## 概要
+商品情報をコピペするだけで、楽天市場とYahoo!ショッピング用のHTMLを自動生成します。
+
+## 特徴
+- **超柔軟**: どんな形式の入力でも受け付けます
+- **自動補完**: 足りない情報は自動で補完
+- **4種類対応**: 楽天PC/スマホ、Yahoo! PC/スマホ
+- **CSVサポート**: CSVファイルからも読み込み可能
+
+## 使い方
+1. 商品情報をテキストエリアに貼り付け
+2. 「HTMLを生成」ボタンをクリック
+3. 生成されたHTMLをコピー
+4. モール管理画面に貼り付け
+
+## デプロイ
+```bash
+# Vercelにデプロイ
+vercel --prod
+```
+
+## ローカル開発
+```bash
+# フロントエンド
+npm install
+npm start
+
+# バックエンド（Vercel Dev）
+vercel dev
+```
+```
+
+### 11.2 使用例ドキュメント
+
+**good_examples.md**: 正しい入力例集
+**bad_examples.md**: うまくいかない入力例と対処法
+**faq.md**: よくある質問
+
+---
+
+## 12. 最終チェックリスト
+
+### 12.1 実装完了チェック
+
+- [ ] **パーサー実装**
+  - [ ] 前処理（正規化）
+  - [ ] 多段階抽出
+  - [ ] 柔軟な項目名マッチング
+  - [ ] 栄養成分抽出
+  - [ ] ナトリウム→食塩換算
+  - [ ] 未知項目の自動検出
+  - [ ] エラーハンドリング（警告ベース）
+
+- [ ] **HTML生成実装**
+  - [ ] 楽天PC用
+  - [ ] 楽天スマホ用
+  - [ ] Yahoo! PC用
+  - [ ] Yahoo! スマホ用
+  - [ ] 欠損項目の行削除
+  - [ ] HTMLエスケープ
+
+- [ ] **CSV対応実装**
+  - [ ] 区切り文字自動判定
+  - [ ] エンコーディング自動判定
+  - [ ] テキスト形式への変換
+
+- [ ] **Vercel統合**
+  - [ ] Serverless Function実装
+  - [ ] CORS設定
+  - [ ] vercel.json設定
+  - [ ] デプロイ
+
+- [ ] **フロントエンド実装**
+  - [ ] React UI
+  - [ ] テキスト入力
+  - [ ] CSVアップロード
+  - [ ] タブ切り替え
+  - [ ] プレビュー表示
+  - [ ] コピーボタン
+  - [ ] ログ表示
+
+- [ ] **テスト**
+  - [ ] 標準入力テスト（5ケース以上）
+  - [ ] 柔軟性テスト（10ケース以上）
+  - [ ] エッジケーステスト（10ケース以上）
+  - [ ] CSVテスト（5ケース以上）
+
+- [ ] **ドキュメント**
+  - [ ] README.md
+  - [ ] 使用例
+  - [ ] デプロイ手順
+
+### 12.2 品質チェック
+
+- [ ] **パフォーマンス**
+  - [ ] 10秒以内に処理完了
+  - [ ] レスポンスサイズ < 1MB
+
+- [ ] **セキュリティ**
+  - [ ] 入力長制限
+  - [ ] 危険なタグチェック
+  - [ ] HTMLエスケープ
+
+- [ ] **ユーザビリティ**
+  - [ ] エラーメッセージが具体的
+  - [ ] ローディング状態の表示
+  - [ ] コピーボタンのフィードバック
+
+---
+
+## 13. 実装優先順位
+
+### Phase 1: MVP（最小実装）
+1. 基本パーサー（標準入力対応）
+2. 楽天PC用HTML生成
+3. 基本フロントエンド（テキスト入力のみ）
+4. Vercelデプロイ
+
+### Phase 2: 柔軟性強化
+5. 多段階抽出実装
+6. 項目名バリエーション対応
+7. エッジケース対応
+
+### Phase 3: 完全版
+8. 楽天スマホ用変換
+9. Yahoo!対応
+10. CSV対応
+11. プレビュー機能
+12. ログ表示
+
+---
+
+**以上が最終要件定義書です。この仕様に従って実装すれば、極めて柔軟で実用的なツールが完成します。**
