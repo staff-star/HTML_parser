@@ -2,16 +2,14 @@
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "functions": {
-    "api/generate.py": {
-      "runtime": "python3.11",
-      "memory": 1024,
-      "maxDuration": 10
+    "api/*.py": {
+      "runtime": "python3.9"
     }
   },
   "rewrites": [
     {
-      "source": "/api/:match*",
-      "destination": "/api/:match*"
+      "source": "/api/:path*",
+      "destination": "/api/:path*"
     }
   ]
 }
