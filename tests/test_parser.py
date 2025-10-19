@@ -10,6 +10,7 @@ TEST_CASES = [
         "expected": {
             "has_product_name": True,
             "has_nutrition": True,
+            "content_value": "300g",
         },
     },
     {
@@ -98,6 +99,13 @@ class FlexibleParserSpecTests(unittest.TestCase):
                         len(product_info.nutrition),
                         0,
                         msg=f"nutrition missing for {case['name']}",
+                    )
+
+                if expected.get("content_value") is not None:
+                    self.assertEqual(
+                        expected["content_value"],
+                        product_info.content,
+                        msg=f"content mismatch for {case['name']}",
                     )
 
                 if expected.get("has_salt_converted"):

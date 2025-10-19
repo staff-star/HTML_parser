@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python test_duplicate.py)",
+      "Bash(python -c \"\nimport csv\nwith open(''output_result.csv'', ''r'', encoding=''utf-8'') as f:\n    reader = csv.DictReader(f)\n    row = next(reader)\n\nyahoo_pc = row.get(''Yahooパソコン'', '''')\n\ncount_genryou = yahoo_pc.count(''原材料'')\ncount_hinmei = yahoo_pc.count(''品名'')\ncount_naiyou = yahoo_pc.count(''内容量'')\n\nprint(''Yahoo パソコン版:'')\nprint(f''  原材料の出現回数: {count_genryou}回'')\nprint(f''  品名の出現回数: {count_hinmei}回'')\nprint(f''  内容量の出現回数: {count_naiyou}回'')\n\nif count_genryou == 1 and count_hinmei == 1 and count_naiyou == 1:\n    print(''\\n重複削除成功!'')\nelse:\n    print(''\\nまだ重複が残っています'')\n\")",
+      "Bash(python test_api.py)",
+      "Bash(python -c \"\nimport csv\nwith open(''output_result.csv'', ''r'', encoding=''utf-8'') as f:\n    reader = csv.DictReader(f)\n    row = next(reader)\n\nyahoo_pc = row.get(''Yahooパソコン'', '''')\n\ncount_genryou = yahoo_pc.count(''原材料'')\ncount_hinmei = yahoo_pc.count(''品名'')\ncount_naiyou = yahoo_pc.count(''内容量'')\n\nprint(''\\n=== 重複チェック結果 ==='')\nprint(f''原材料の出現回数: {count_genryou}回 (目標: 1回)'')\nprint(f''品名の出現回数: {count_hinmei}回 (目標: 1回)'')\nprint(f''内容量の出現回数: {count_naiyou}回 (目標: 1回)'')\n\nif count_genryou == 1 and count_hinmei == 1 and count_naiyou == 1:\n    print(''\\n✓ 重複削除成功！'')\nelse:\n    print(''\\nまだ重複が残っています'')\n\")"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

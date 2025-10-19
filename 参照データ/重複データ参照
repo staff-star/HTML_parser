@@ -1,0 +1,85 @@
+＃元入力
+■品名：焼たらチーズ
+■名称：チーズ加工品及び魚肉加工品
+■原材料名：乳等を主要原料とする食品（ナチュラルチーズ、植物油脂、マルトデキストリン、食塩）(国内製造)、魚肉加工品（魚肉すり身、でん粉、植物性たん白、食塩、砂糖、植物油脂）／乳化剤、加工でん粉、ソルビトール、調味料（アミノ酸等）、（一部に乳成分・小麦・大豆を含む）
+■内容量：300g
+賞味期限：製造より常温120日（約40日～120日弱賞味期限が残ったものでのお届けとなります）
+■保存方法：直射日光・高温多湿を避けて保存してください。
+■販売者：株式会社天然生活
+〒141-0032　東京都品川区大崎3-6-4　トキワビル7F
+
+【栄養成分表示（100gあたり）】※推定値
+エネルギー　384kcal
+たんぱく質　22.3g
+脂質　29.5g
+炭水化物　7.2g
+食塩相当量　1.9g
+
+●チーズ中の北海道産チェダーチーズの割合69%
+●黒い斑点状の物が見える場合がありますが、魚の皮ですので品質上問題ありません
+●開封後は、冷蔵庫(10℃以下)に保管し、2日以内にお召し上がりください。
+
+＃出力結果
+<div style="margin:20px auto;max-width:800px;font-family:'メイリオ',Meiryo,sans-serif;">
+  <div style="margin-bottom:20px;">
+  <div style="background:#f5f5f5;padding:12px 16px;border:1px solid #333;font-weight:bold;">商品情報</div>
+  <table style="width:100%;border-collapse:collapse;font-size:14px;">
+    <tr>
+      <th style="background:#e8e8e8;padding:10px;border:1px solid #333;text-align:left;width:25%;">商品名</th>
+      <td style="padding:10px;border:1px solid #333;">焼たらチーズ</td>
+    </tr>
+    <tr>
+      <th style="background:#e8e8e8;padding:10px;border:1px solid #333;text-align:left;width:25%;">名称</th>
+      <td style="padding:10px;border:1px solid #333;">チーズ加工品及び魚肉加工品</td>
+    </tr>
+    <tr>
+      <th style="background:#e8e8e8;padding:10px;border:1px solid #333;text-align:left;width:25%;">原材料</th>
+      <td style="padding:10px;border:1px solid #333;">乳等を主要原料とする食品(ナチュラルチーズ、植物油脂、マルトデキストリン、食塩)(国内製造)、魚肉加工品(魚肉すり身、でん粉、植物性たん白、食塩、砂糖、植物油脂)/乳化剤、加工でん粉、ソルビトール、調味料(アミノ酸等)、(一部に乳成分・小麦・大豆を含む)</td>
+    </tr>
+    <tr>
+      <th style="background:#e8e8e8;padding:10px;border:1px solid #333;text-align:left;width:25%;">内容量</th>
+      <td style="padding:10px;border:1px solid #333;">300g</td>
+    </tr>
+    <tr>
+      <th style="background:#e8e8e8;padding:10px;border:1px solid #333;text-align:left;width:25%;">賞味期限</th>
+      <td style="padding:10px;border:1px solid #333;">製造より常温120日(約40日~120日弱賞味期限が残ったものでのお届けとなります)</td>
+    </tr>
+    <tr>
+      <th style="background:#e8e8e8;padding:10px;border:1px solid #333;text-align:left;width:25%;">保存方法</th>
+      <td style="padding:10px;border:1px solid #333;">直射日光・高温多湿を避けて保存してください。</td>
+    </tr>
+    <tr>
+      <th style="background:#e8e8e8;padding:10px;border:1px solid #333;text-align:left;width:25%;">販売者</th>
+      <td style="padding:10px;border:1px solid #333;">株式会社天然生活<br>〒141-0032 東京都品川区大崎3-6-4 トキワビル7F</td>
+    </tr>
+  </table>
+</div>
+  <div style="margin-bottom:20px;">
+  <div style="background:#f5f5f5;padding:12px 16px;border:1px solid #333;font-weight:bold;">栄養成分表示（100g当たり）推定値</div>
+  <table style="width:100%;border-collapse:collapse;font-size:14px;">
+    <tr>
+      <th style="background:#e8e8e8;padding:10px;border:1px solid #333;text-align:left;width:25%;">エネルギー</th>
+      <td style="padding:10px;border:1px solid #333;">384kcal</td>
+    </tr>
+    <tr>
+      <th style="background:#e8e8e8;padding:10px;border:1px solid #333;text-align:left;width:25%;">たんぱく質</th>
+      <td style="padding:10px;border:1px solid #333;">22.3g</td>
+    </tr>
+    <tr>
+      <th style="background:#e8e8e8;padding:10px;border:1px solid #333;text-align:left;width:25%;">脂質</th>
+      <td style="padding:10px;border:1px solid #333;">29.5g</td>
+    </tr>
+    <tr>
+      <th style="background:#e8e8e8;padding:10px;border:1px solid #333;text-align:left;width:25%;">炭水化物</th>
+      <td style="padding:10px;border:1px solid #333;">7.2g</td>
+    </tr>
+    <tr>
+      <th style="background:#e8e8e8;padding:10px;border:1px solid #333;text-align:left;width:25%;">食塩相当量</th>
+      <td style="padding:10px;border:1px solid #333;">1.9g</td>
+    </tr>
+  </table>
+</div>
+  <div style="border:2px solid #ff6b6b;background:#fff5f5;padding:16px;margin-top:20px;">
+  <strong>注意事項</strong><br>推定値:エネルギー 384kcal たんぱく質 22.3g 脂質 29.5g 炭水化物 7.2g 食塩相当量 1.9g ●チーズ中の北海道産チェダーチーズの割合69% ●黒い斑点状の物が見える場合がありますが、魚の皮ですので品質上問題ありません ●開封後は、冷蔵庫(10°C以下)に保管し、2日以内にお召し上がりください。
+</div>
+</div>

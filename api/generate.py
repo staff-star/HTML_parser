@@ -212,20 +212,20 @@ def validate_input_safety(text: str) -> None:
 def extract_field_value(text: str, field_key: str) -> Optional[str]:
     variations = FIELD_VARIATIONS.get(field_key, [])
     for variation in variations:
-        pattern1 = rf"[■【\[]?\s*{re.escape(variation)}\s*[:：]\s*(.+?)(?=\n[■【\[]|【栄養|※|$)"
+        pattern1 = rf"[■□\[]?\s*{re.escape(variation)}\s*[:：]\s*(.+?)(?=\n\s*(?:[■□\[]|\S+\s*[:：]|栄養|アレル|nutrition|allergen|#|$)|$)"
         match = re.search(pattern1, text, re.IGNORECASE | re.DOTALL)
         if match:
-            return match.group(1).strip()
+            return clean_extracted_value(field_key, match.group(1))
 
         pattern2 = rf"^\s*{re.escape(variation)}\s*[:：]\s*(.+?)(?=\n|$)"
         match = re.search(pattern2, text, re.IGNORECASE | re.MULTILINE)
         if match:
-            return match.group(1).strip()
+            return clean_extracted_value(field_key, match.group(1))
 
         pattern3 = rf"{re.escape(variation)}\s*\n\s*(.+?)(?=\n|$)"
         match = re.search(pattern3, text, re.IGNORECASE)
         if match:
-            return match.group(1).strip()
+            return clean_extracted_value(field_key, match.group(1))
     return None
 
 
@@ -290,6 +290,51 @@ def extract_unknown_fields(text: str) -> Dict[str, str]:
             continue
         unknown[field_name] = value
     return unknown
+
+
+SECTION_BOUNDARY_PREFIXES = {"■", "□", "◆", "◇", "◎", "○", "●", "・", "*", "-", "▲", "▼"}
+SECTION_BOUNDARY_KEYWORDS = [
+    "栄養成分",
+    "栄養",
+    "アレルギー",
+    "アレルゲン",
+    "原材料情報",
+]
+SECTION_BOUNDARY_KEYWORDS_EN = [
+    "nutrition",
+    "allergen",
+]
+
+def _looks_like_new_section(line: str) -> bool:
+    stripped = line.strip()
+    if not stripped:
+        return False
+    if stripped[0] in SECTION_BOUNDARY_PREFIXES:
+        stripped = stripped[1:].strip()
+    normalized = unicodedata.normalize("NFKC", stripped)
+    lower = normalized.lower()
+    if any(lower.startswith(keyword.lower()) for keyword in SECTION_BOUNDARY_KEYWORDS):
+        return True
+    if any(lower.startswith(keyword) for keyword in SECTION_BOUNDARY_KEYWORDS_EN):
+        return True
+    if ":" in normalized or "：" in normalized:
+        prefix = re.split(r"[:：]", normalized, maxsplit=1)[0].strip().lower()
+        if prefix in FIELD_VARIATION_SET or prefix in NUTRITION_VARIATION_SET:
+            return True
+    return False
+
+def clean_extracted_value(field_key: str, value: str) -> str:
+    if not value:
+        return ""
+    lines = value.splitlines()
+    cleaned: List[str] = []
+    for index, line in enumerate(lines):
+        if index > 0 and _looks_like_new_section(line):
+            break
+        stripped = line.strip()
+        if stripped:
+            cleaned.append(stripped)
+    return "\n".join(cleaned)
 
 
 def extract_allergen(text: str) -> Optional[str]:
@@ -857,6 +902,7 @@ class handler(BaseHTTPRequestHandler):
         self._set_headers()
         self.end_headers()
         self.wfile.write(json.dumps(result, ensure_ascii=False).encode("utf-8"))
+
 
 
 
