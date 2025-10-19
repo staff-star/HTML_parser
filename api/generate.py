@@ -605,6 +605,23 @@ class HTMLGenerator:
             return "<p>情報を抽出できませんでした</p>"
         return "".join(sections)
 
+    def _wrap_sp_item(self, label: str, value: str) -> str:
+        """Yahoo!SP用: style属性使用可能"""
+        return (
+            f"<table width=\"100%\" cellpadding=\"10\" cellspacing=\"0\" style=\"border:1px solid {self.COLORS['border']};background:#fff;margin-bottom:8px;\">"
+            f"<tr><td style=\"font-weight:bold;color:#555;border-bottom:1px solid #ddd;\">{escape_html(label)}</td></tr>"
+            f"<tr><td style=\"line-height:1.6;\">{escape_html(value)}</td></tr>"
+            "</table>"
+        )
+
+    def _build_allergen_section_sp(self, allergen: str) -> str:
+        """Yahoo!SP用: style属性使用可能"""
+        return (
+            f"<table width=\"100%\" cellpadding=\"12\" cellspacing=\"0\" style=\"border:2px solid {self.COLORS['allergen_border']};background:{self.COLORS['allergen_bg']};margin-top:16px;\">"
+            f"<tr><td><b>注意事項</b><br>{escape_html(allergen)}</td></tr>"
+            "</table>"
+        )
+
     def _wrap_dl(self, label: str, value: str) -> str:
         return (
             f"<dt style=\"font-weight:bold;color:#444;margin-bottom:4px;\">{escape_html(label)}</dt>"
